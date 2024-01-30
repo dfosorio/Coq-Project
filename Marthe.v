@@ -8,7 +8,6 @@
 Require Import String Datatypes Arith List Lia.
 Import ListNotations.
 Open Scope list_scope.
-Open Scope nat_scope.
 
 (** What you should do :
     a) Remove axiom TODO  and replace its uses by working code.
@@ -318,6 +317,7 @@ Definition Step (code:list instr) (m m' : machine) : Prop :=
   | None => False
  end.
 
+(*SomeSteps define a transitive relation*)
 Inductive Steps (code:list instr) : machine -> machine -> Prop :=
  | NoStep m : Steps code m m
  | SomeSteps m1 m2 m3 :
@@ -353,14 +353,24 @@ Global Hint Constructors Stepi Steps : core.
 Lemma Steps_trans code m1 m2 m3 :
  Steps code m1 m2 -> Steps code m2 m3 -> Steps code m1 m3.
 Proof.
-Admitted.
+intros.
+induction H.
+- assumption.
+- apply (SomeSteps code m1 m2 m3).
+  + assumption.
+  + apply IHSteps in H0 as H2. assumption.
+Qed.
 
 Lemma OneStep code st st' : Step code st st' -> Steps code st st'.
 Proof.
-Admitted.
+intros.
+apply (SomeSteps code st st' st').
+- assumption.
+- apply (NoStep code st').
+Qed.
 
 (** Shifting the pc in a machine *)
-
+(*moving the pc by k positions*)
 Definition shift_pc k (p:machine) :=
  let '(Mach pc stk vars) := p in
  (Mach (k+pc) stk vars).
@@ -371,10 +381,12 @@ Proof.
 Qed.
 
 (** Adding code before / after the znoe of interest *)
-
+Open Scope nat_scope.
 Lemma Step_extend code code' m m' :
  Step code m m' -> Step (code++code') m m'.
 Proof.
+intros.
+unfold Step in H.
 Admitted.
 
 Lemma Steps_extend code code' m m' :
