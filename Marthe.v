@@ -385,19 +385,38 @@ Open Scope nat_scope.
 Lemma Step_extend code code' m m' :
  Step code m m' -> Step (code++code') m m'.
 Proof.
-intros.
-unfold Step in H.
-Admitted.
+unfold Step.
+revert code. (*necessary to get the implicit forall quantification*)
+induction (pc m). 
+- destruct code.
+  + simpl. contradiction.
+  + simpl. trivial.
+- destruct code.
+  + simpl. contradiction. 
+  + simpl. intros. apply IHn. assumption. 
+Qed.
 
 Lemma Steps_extend code code' m m' :
  Steps code m m' -> Steps (code++code') m m'.
 Proof.
-Admitted.
+intros.
+induction H. 
+- apply (NoStep (code ++ code') m).
+- apply (SomeSteps (code ++ code') m1 m2 m3).
+  + apply Step_extend. assumption.
+  + assumption.
+Qed.
 
 Lemma Stepi_shift instr n m m' :
  Stepi instr m m' ->
  Stepi instr (shift_pc n m) (shift_pc n m').
 Proof.
+(*
+intros.
+induction n.
+- destruct m. destruct m'. simpl. assumption.
+- destruct m. destruct m'. simpl. .
+*)
 Admitted.
 
 Lemma Step_shift code0 code m m' (n := List.length code0) :
