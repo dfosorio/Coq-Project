@@ -472,7 +472,16 @@ Lemma Steps_shift code0 code  m m' (n := List.length code0) :
  Steps code m m' ->
  Steps (code0 ++ code) (shift_pc n m) (shift_pc n m').
 Proof.
-Admitted.
+intros.
+(*induction over the definition of Steps*)
+induction H.
+(*by definition of NoStep*)
+- apply (NoStep (code0 ++ code) (shift_pc n m)).
+(*by definition of SomeSteps*)
+- apply (SomeSteps (code0 ++ code) (shift_pc n m1) (shift_pc n m2) (shift_pc n m3)).
+  + apply Step_shift. assumption.
+  + assumption.
+Qed.
 
 (** Composition of complete executions *)
 
@@ -481,7 +490,21 @@ Lemma Exec_trans code1 code2 stk1 vars1 stk2 vars2 stk3 vars3 :
  Exec code2 (stk2, vars2) (stk3, vars3) ->
  Exec (code1 ++ code2) (stk1, vars1) (stk3, vars3).
 Proof.
-Admitted.
+unfold Exec.
+intros.
+(*use Steps_trans with the machines in the context*)
+apply (Steps_trans (code1 ++ code2) (Mach 0 stk1 vars1) (Mach (length code1) stk2 vars2) (Mach (length (code1 ++ code2)) stk3 vars3)).
+(*use Steps_extend*)
+- apply Steps_extend. assumption.
+(* To proof that the machine 2 has the code shifted (length code1) positions*) 
+- assert (Haux1: (Mach (length code1) stk2 vars2) = shift_pc (length code1) (Mach 0 stk2 vars2)). simpl. rewrite <- plus_n_O. reflexivity.
+(* To proof that the machine 3 has the code shifted (length code1 ++ code2) positions*)
+  assert (Haux2: (Mach (length (code1 ++ code2)) stk3 vars3) = shift_pc (length code1) (Mach (length code2) stk3 vars3)). simpl. rewrite app_length. reflexivity.
+(*rewrite the goal using the proven assertions*)  
+rewrite Haux1. rewrite Haux2.
+(*use Steps_shift*)
+apply Steps_shift. assumption.
+Qed.
 
 
 (** Correctness of jumps in a loop:
