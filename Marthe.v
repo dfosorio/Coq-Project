@@ -354,6 +354,7 @@ Lemma Steps_trans code m1 m2 m3 :
  Steps code m1 m2 -> Steps code m2 m3 -> Steps code m1 m3.
 Proof.
 intros.
+(*induction over the definition of Steps*)
 induction H.
 - assumption.
 - apply (SomeSteps code m1 m2 m3).
@@ -364,7 +365,9 @@ Qed.
 Lemma OneStep code st st' : Step code st st' -> Steps code st st'.
 Proof.
 intros.
+(*use definition of Steps*)
 apply (SomeSteps code st st' st').
+(*prove conditions generated after applying SomeSteps*)
 - assumption.
 - apply (NoStep code st').
 Qed.
@@ -386,11 +389,15 @@ Lemma Step_extend code code' m m' :
  Step code m m' -> Step (code++code') m m'.
 Proof.
 unfold Step.
-revert code. (*necessary to get the implicit forall quantification*)
+(*necessary to get the implicit forall quantification*)
+revert code. 
+(*induction over the pc index*)
 induction (pc m). 
+(*case analysis on the code list in the base case*)
 - destruct code.
   + simpl. contradiction.
   + simpl. trivial.
+(*case analysis on the code list in the inductive case*)
 - destruct code.
   + simpl. contradiction. 
   + simpl. intros. apply IHn. assumption. 
@@ -400,30 +407,66 @@ Lemma Steps_extend code code' m m' :
  Steps code m m' -> Steps (code++code') m m'.
 Proof.
 intros.
+(*induction over the definition of Steps*)
 induction H. 
+(*by definition of NoStep*)
 - apply (NoStep (code ++ code') m).
+(*by definition of SomeSteps*)
 - apply (SomeSteps (code ++ code') m1 m2 m3).
   + apply Step_extend. assumption.
   + assumption.
 Qed.
 
+
 Lemma Stepi_shift instr n m m' :
  Stepi instr m m' ->
  Stepi instr (shift_pc n m) (shift_pc n m').
 Proof.
-(*
 intros.
-induction n.
-- destruct m. destruct m'. simpl. assumption.
-- destruct m. destruct m'. simpl. .
-*)
-Admitted.
+(*Proof by cases over Stepi*)
+destruct H.
+  - simpl. rewrite Nat.add_succ_r. apply (SPush (n + pc0) stk vs n0).
+  - simpl. rewrite Nat.add_succ_r. apply (SPop (n + pc0) stk vs x).
+  - simpl. rewrite Nat.add_succ_r. apply (SOp (n + pc0) stk vs o y x).
+  - simpl. rewrite Nat.add_succ_r. apply (SNewVar (n + pc0) stk vs).
+  - simpl. rewrite Nat.add_succ_r. apply (SDelVar (n + pc0) stk vs x).
+  - simpl. rewrite Nat.add_succ_r. apply (SGetVar (n + pc0) stk vs i x).
+    + assumption.
+  - simpl. rewrite Nat.add_succ_r. apply (SSetVar (n + pc0) stk vs vs' i x).
+    + assumption.
+  - simpl. rewrite Nat.add_sub_assoc. apply (SJumpYes (n + pc0) stk vs v x off).
+    + rewrite Nat.add_comm. apply Arith_prebase.le_plus_trans_stt. assumption.
+    + assumption.
+    + assumption.
+  - simpl. rewrite Nat.add_succ_r. apply (SJumpNo (n + pc0) stk vs v x off).
+    + assumption.
+Qed.
 
 Lemma Step_shift code0 code m m' (n := List.length code0) :
  Step code m m' ->
  Step (code0 ++ code) (shift_pc n m) (shift_pc n m').
 Proof.
-Admitted.
+unfold Step.
+(*add Haux1 before to use it later in proof*)
+assert (Haux1: n = length code0). trivial.
+intros.
+rewrite (pc_shift n m).
+rewrite (get_app_r' code0 code (n + pc m)).
+(*Proving that n + pc m - length code0 = pc m *)
+rewrite Nat.add_comm. 
+rewrite <- Haux1. 
+rewrite <- (Nat.add_sub_assoc (pc m) n n).
+rewrite Nat.sub_diag.
+rewrite Nat.add_0_r.
+(*Proof by cases over the function list_get*)
+destruct list_get.
+  - remember Haux1. apply Stepi_shift. assumption.
+  - trivial.
+  (*Proof of the preconditions of Nat.add_sub_assoc*)
+  - trivial.
+  (*Proof of the preconditions of get_app_r*)
+  - rewrite <- Haux1. apply Nat.le_add_r.
+Qed.
 
 Lemma Steps_shift code0 code  m m' (n := List.length code0) :
  Steps code m m' ->
