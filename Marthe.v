@@ -256,6 +256,7 @@ Record machine :=
 
 Definition initial_machine := Mach 0 nil nil.
 
+(*Syntax of the instructions*)
 Inductive instr :=
   (** Push a integer value to the stack. *)
   | Push : nat -> instr
@@ -284,7 +285,6 @@ Inductive instr :=
 
 (* Reference Semantics for instructions,
    defined via an inductive relation *)
-
 Inductive Stepi : instr -> machine -> machine -> Prop :=
 | SPush pc stk vs n :
     Stepi (Push n) (Mach pc stk vs) (Mach (S pc) (n::stk) vs)
@@ -498,7 +498,7 @@ apply (Steps_trans (code1 ++ code2) (Mach 0 stk1 vars1) (Mach (length code1) stk
 - apply Steps_extend. assumption.
 (* To proof that the machine 2 has the code shifted (length code1) positions*) 
 - assert (Haux1: (Mach (length code1) stk2 vars2) = shift_pc (length code1) (Mach 0 stk2 vars2)). simpl. rewrite <- plus_n_O. reflexivity.
-(* To proof that the machine 3 has the code shifted (length code1 ++ code2) positions*)
+(* To proof that the machine 3 has the code shifted (length code2) positions*)
   assert (Haux2: (Mach (length (code1 ++ code2)) stk3 vars3) = shift_pc (length code1) (Mach (length code2) stk3 vars3)). simpl. rewrite app_length. reflexivity.
 (*rewrite the goal using the proven assertions*)  
 rewrite Haux1. rewrite Haux2.
@@ -570,16 +570,43 @@ Admitted.
        loop variables.
     See also the invariant EnvsOk below for details. *)
 
+(*The idea is that comp always leaves the top of the stack
+  with the resulting answer of the expression*)
+
+Open Scope list_scope.
+
 Fixpoint comp (cenv:list string) e :=
   match e with
+    (*Put int on top of stack*)
     | EInt n => Push n :: nil
-    | EVar v => TODO
-    | EOp o e1 e2 => TODO
-    | ESum v efin ecorps =>
-      let prologue := TODO in
-      let corps := TODO in
-      let boucle := corps ++ Jump TODO :: nil in
-      let epilogue := TODO in
+    (*Search for the var in the even position of the variable stack, 
+      then put its value on top of stack*)
+    | EVar v => GetVar (index v cenv * 2) :: nil
+    (*Compute value of e1 and e2, then operate them*)
+    | EOp o e1 e2 => (comp cenv e1) ++ (comp cenv e2) ++ (Op o :: nil)
+    | ESum v efin ecorps => 
+      (*add the accumulator variable (position 1) and loop variable (position 0)
+        also add a dummy in the calculation stack to be popped in corps *)
+      let prologue := NewVar :: NewVar :: Push 1 :: nil in
+      (*0) Pop the top of calculation stack (dummy or evfin value)
+        1) Evaluate ecorps with loop var (gets stored on top of the calculation stack)
+        2) Get the current value of the accumulator (which is in 1st position of the variable stack) and put it in the calculation stack
+        3) Add the values from step 1 and 2
+        4) Store the value from step 3 in the accumulator variable 
+        5) Get the current value of loop variable (which is in 0 position of the variable stack) and put it in the calculation stack
+        6) Put 1 in the calculation stack
+        7) Add the values from step 5 and 6
+        8) Store the value from step 7 in the loop variable
+        9) Evaluate the efin expression and put it on top of calculation stack *)
+      let corps := (Pop :: nil) (*Step 0*)
+                   ++ (comp (v::cenv) ecorps) (*Step 1*)
+                   ++ (GetVar 1 :: Op Plus :: SetVar 1 (*Steps 2,3,4*)
+                   :: GetVar 0 :: Push 1 :: Op Plus :: SetVar 0 :: nil) (*Steps 5,6,7,8*)
+                   ++ (comp cenv efin) in (*Step 9*)
+      (*Jump to the first intruction in corps*)
+      let boucle := corps ++ Jump (length corps) :: nil in
+      (*Pop the efin value, Put accumulator value in calculation stack, delete loop and accumulator variables*)
+      let epilogue := Pop :: GetVar 1 :: DelVar :: DelVar :: nil in
       prologue ++ boucle ++ epilogue
   end.
 
@@ -588,8 +615,9 @@ Definition compile e := comp nil e.
 (** Free variables in an expression *)
 
 Inductive FV (v:var) : expr -> Prop :=
-| FVVar : FV v (EVar v).
-(* TODO : ajouter les règles manquantes... *)
+| FVVar : FV v (EVar v)
+| FVOp o e1 e2 :  (FV v e1) \/ (FV v e2) -> (FV v (EOp o e1 e2))
+| FVSum v' efin ecorps : (v' <> v) /\ (FV v ecorps) -> (FV v (ESum v' efin ecorps)). 
 
 Global Hint Constructors FV : core.
 
@@ -600,19 +628,58 @@ Definition Closed e := forall v, ~ FV v e.
     cenv : compilation environment (list string)
     vars : stack variable for the machines *)
 
+(*EnvsOk iff for all free variable in the compilation environment
+ then the value in the evaluation environment is the same as in the
+ stack variable*)
 Definition EnvsOk e env cenv vars :=
  forall v, FV v e ->
    In v cenv /\
    list_get vars (index v cenv * 2) = Some (lookup v env 0).
 
 Global Hint Unfold EnvsOk : core.
+Open Scope string_scope.
 
 Lemma EnvsOk_ESum v e1 e2 env cenv vars a b :
   EnvsOk (ESum v e1 e2) env cenv vars ->
   EnvsOk e2 ((v,a)::env) (v::cenv) (a::b::vars).
 Proof.
-Admitted.
+unfold EnvsOk.
+intros.
+(*
 
+
+(*Proof that FV v0 (ESum v e1 e2) holds*)
+assert (Haux1: FV v0 (ESum v e1 e2)).
+  (*Proof by cases over v = v0 or v =/= v0*)
+  - destruct (v ?= v0) eqn: H1. 
+    + apply (FVSum v0 v e1 e2).
+
+
+ apply compare_eq_iff in H1. intro.
+
+
+ fisrt_Order.
+    SearchPattern(_=_-> _<>_). Search compare.
+
+
+Search equality.
+Print _<>_. contradiction.
+
+assert (H2: v = v0). destruct H1 eqn: H3.
+    + apply (FVSum v0 v e1 e2) in H1.
+
+(*Proof that if v =/= v0 then FV v0 (ESum v e1 e2) holds*)
+
+
+(*Proof by induction over e2*)
+induction e2.
+Focus 2.
+split.
+
+apply (in_cons v v0 cenv).
+
+*)
+Admitted.
 
 (** Compiler correctness *)
 
