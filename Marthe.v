@@ -674,6 +674,37 @@ Theorem comp_ok e env cenv vars stk :
  EnvsOk e env cenv vars ->
  Exec (comp cenv e) (stk,vars) (eval env e :: stk, vars).
 Proof.
+intros.
+(*Generalize before the induction*)
+revert stk.
+(*induction over the expression e*) 
+induction e.
+(*if the expression is an integer then only one number is pushed to the stack (only one step)*)
+- intros. simpl. apply OneStep. unfold Step. simpl. apply (SPush 0 stk vars n).
+(*if the expression is a variable then the variable is searched on the stack (only one step)*)
+- intros. simpl. apply OneStep. unfold Step. simpl. apply (SGetVar 0 stk vars (index v cenv * 2) (lookup v env 0)). 
+  apply H. apply FVVar.
+(*if the expression is an operation then top two variables are operated afte evaluating the two expressions
+(one step + 2 uses of induction hypothesis*)
+- intros. simpl. eapply Exec_trans. 
+  (*Start with the left operator (i.e. IHe1)*)
+  apply IHe1. unfold EnvsOk. unfold EnvsOk in H. intros. 
+  (*Proof that FV v0 (ESum v e1 e2) holds*)
+  assert (Haux1: FV v (EOp o e1 e2)). apply (FVOp v o e1 e2). left. assumption.
+  (*End the proof of the left side*)
+  apply H in Haux1. assumption.
+  (*Separate the remaining code into code of right operator and instruction OP o*)
+  eapply Exec_trans.
+  (*Now the right operator (i.e. IHe2)*)
+  apply IHe2. unfold EnvsOk. unfold EnvsOk in H. intros. 
+  (*Proof that FV v0 (ESum v e1 e2) holds*)
+  assert (Haux1: FV v (EOp o e1 e2)). apply (FVOp v o e1 e2). right. assumption.
+  (*End the proof of the right side*)
+  apply H in Haux1. assumption.
+  (*if code is only an operator then use the definition of it to prove it*)
+  simpl. apply OneStep. unfold Step. simpl. apply (SOp 0 stk vars o (eval env e2) (eval env e1)).
+-(*if the expression is a Sum then...*)
+
 Admitted.
 
 Theorem compile_ok e : Closed e -> Run (compile e) (eval nil e).
