@@ -628,9 +628,8 @@ Definition Closed e := forall v, ~ FV v e.
     cenv : compilation environment (list string)
     vars : stack variable for the machines *)
 
-(*EnvsOk iff for all free variable in the compilation environment
- then the value in the evaluation environment is the same as in the
- stack variable*)
+(*EnvsOk iff for all free variable of an expresion, the variable is in the compilation environment
+ then the value in the evaluation environment is the same as in the stack variable*)
 Definition EnvsOk e env cenv vars :=
  forall v, FV v e ->
    In v cenv /\
@@ -645,41 +644,20 @@ Lemma EnvsOk_ESum v e1 e2 env cenv vars a b :
 Proof.
 unfold EnvsOk.
 intros.
-(*
-
-
+(*Proof by cases over v = v0 or v =/= v0*)
+destruct (v =? v0) eqn: H1.
+(*Case v = v0*)  
+- apply eqb_eq in H1. rewrite H1. split.
+  + simpl. left. reflexivity.
+  + simpl. rewrite eqb_refl. simpl. reflexivity.
+(*Case v =/= v0*)
 (*Proof that FV v0 (ESum v e1 e2) holds*)
-assert (Haux1: FV v0 (ESum v e1 e2)).
-  (*Proof by cases over v = v0 or v =/= v0*)
-  - destruct (v ?= v0) eqn: H1. 
-    + apply (FVSum v0 v e1 e2).
-
-
- apply compare_eq_iff in H1. intro.
-
-
- fisrt_Order.
-    SearchPattern(_=_-> _<>_). Search compare.
-
-
-Search equality.
-Print _<>_. contradiction.
-
-assert (H2: v = v0). destruct H1 eqn: H3.
-    + apply (FVSum v0 v e1 e2) in H1.
-
-(*Proof that if v =/= v0 then FV v0 (ESum v e1 e2) holds*)
-
-
-(*Proof by induction over e2*)
-induction e2.
-Focus 2.
-split.
-
-apply (in_cons v v0 cenv).
-
-*)
-Admitted.
+- assert (Haux1: FV v0 (ESum v e1 e2)). apply (FVSum v0 v e1 e2). split. apply eqb_neq. assumption. assumption.
+(*use intermediate hypothesis*)
+apply H in Haux1. destruct Haux1. split. 
+  + simpl. right. assumption.
+  + simpl. rewrite eqb_sym. rewrite H1. rewrite <- H3. reflexivity.
+Qed. 
 
 (** Compiler correctness *)
 
