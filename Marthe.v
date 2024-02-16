@@ -155,6 +155,16 @@ Fixpoint sum f x k :=
 Compute sum (fun _ => 1) 0 10. (* 11 *)
 Compute sum (fun x => x) 0 10. (* 0 + 1 + ... + 10 = 55 *)
 
+(*Stating some simple lemmas about sums for other proofs*)
+Lemma sumAux1 N a f : sum f (S a) N = sum f a (S N) - f(a).
+Proof.
+simpl sum. lia.
+Qed.
+
+Lemma sumAux2 N a f : sum f a (S N) = sum f a N + f(S N + a).
+Proof.
+Admitted.
+
 (** II) Arithmetical expressions with summations *)
 
 (** Expressions *)
@@ -538,7 +548,40 @@ Lemma Steps_jump code n (f:nat->nat) stk vars b :
           (Mach 0 (b::stk) (a::acc::vars))
           (Mach (S n) (b::stk) ((S b)::(acc + sum f a N)::vars)).
 Proof.
+intros.
+(*Proof by induction over N *)
+(*Necessary to use any previous accumulator during the inductive case*)
+revert acc.
+induction N.
+(*base case*)
+(*divide the execution in m1 = machine at starting point, m2 = machine before jump, m3 = machine after jump*)
+- intros. apply Steps_trans with (m2 := (Mach n (b :: stk) (S a :: acc + f a :: vars))).
+  (*the instruction jump can be omitted since pc = n = lenth code*)
+  apply Steps_extend. apply H0.
+  (*simplify to one step, and get the instruction executed in the step (i.e. jump instruction only)*)
+  apply SomeSteps with (m2 := (Mach (S n) (b :: stk) (S b :: acc + sum f a 0 :: vars))).
+  unfold Step. rewrite get_app_r0.  rewrite H1. simpl.  apply SJumpNo.
+  (*proof unresolved assumption*)
+  lia. simpl. rewrite H. reflexivity. apply NoStep.
+(*Inductive case*)
+- intros. 
+assert (Haux1: forall N a, sum f a (S N) = sum f a N + f(S N + a)).
+intros. induction N0. simpl. 
+(*
+assert (Haux2: forall N a, sum f (S
+
+reflexivity. simpl.
+(* 1) go back one step before the JumpNo was executed*)
+apply Steps_trans with (m2 := (Mach n (b :: stk) (S b :: acc + sum f a (S N) :: vars))).
+(* 2) go back from one execution of the cycle before*)
+  apply Steps_trans with (m2 := (Mach 0 (b :: stk) (b :: acc + sum f a N :: vars))) .
+(*3) use the hypothesis H*)
+*)
+
 Admitted.
+
+
+
 
 (** Specialized version of the previous result, with
     Exec instead of Step, and 0 as initial value for loop variables
@@ -575,6 +618,7 @@ Admitted.
 
 Open Scope list_scope.
 
+(*NOTE: correction made to the algorithm thanks to a conversation with Guido*)
 Fixpoint comp (cenv:list string) e :=
   match e with
     (*Put int on top of stack*)
@@ -586,29 +630,26 @@ Fixpoint comp (cenv:list string) e :=
     | EOp o e1 e2 => (comp cenv e1) ++ (comp cenv e2) ++ (Op o :: nil)
     | ESum v efin ecorps => 
       (*add the accumulator variable (position 1) and loop variable (position 0)
-        also add a dummy in the calculation stack to be popped in corps *)
-      let prologue := NewVar :: NewVar :: Push 1 :: nil in
-      (*0) Pop the top of calculation stack (dummy or evfin value)
-        1) Evaluate ecorps with loop var (gets stored on top of the calculation stack)
+        also add the value after evaluating the efin expression on top of the stack *)
+      let prologue := comp cenv efin ++ (NewVar :: NewVar :: nil) in
+      (*1) Evaluate ecorps with loop var (gets stored on top of the calculation stack)
         2) Get the current value of the accumulator (which is in 1st position of the variable stack) and put it in the calculation stack
         3) Add the values from step 1 and 2
         4) Store the value from step 3 in the accumulator variable 
         5) Get the current value of loop variable (which is in 0 position of the variable stack) and put it in the calculation stack
         6) Put 1 in the calculation stack
         7) Add the values from step 5 and 6
-        8) Store the value from step 7 in the loop variable
-        9) Evaluate the efin expression and put it on top of calculation stack *)
-      let corps := (Pop :: nil) (*Step 0*)
-                   ++ (comp (v::cenv) ecorps) (*Step 1*)
+        8) Store the value from step 7 in the loop variable*)
+      let corps := (comp (v::cenv) ecorps) (*Step 1*)
                    ++ (GetVar 1 :: Op Plus :: SetVar 1 (*Steps 2,3,4*)
-                   :: GetVar 0 :: Push 1 :: Op Plus :: SetVar 0 :: nil) (*Steps 5,6,7,8*)
-                   ++ (comp cenv efin) in (*Step 9*)
-      (*Jump to the first intruction in corps*)
-      let boucle := corps ++ Jump (length corps) :: nil in
+                   :: GetVar 0 :: Push 1 :: Op Plus :: SetVar 0 :: nil) in (*Steps 5,6,7,8*)
+      (*Jump to the first intruction in corps *)
+      let boucle := (corps ++ Jump (length corps) :: nil) in
       (*Pop the efin value, Put accumulator value in calculation stack, delete loop and accumulator variables*)
       let epilogue := Pop :: GetVar 1 :: DelVar :: DelVar :: nil in
-      prologue ++ boucle ++ epilogue
+      prologue ++ (boucle ++ epilogue)
   end.
+
 
 Definition compile e := comp nil e.
 
@@ -617,7 +658,7 @@ Definition compile e := comp nil e.
 Inductive FV (v:var) : expr -> Prop :=
 | FVVar : FV v (EVar v)
 | FVOp o e1 e2 :  (FV v e1) \/ (FV v e2) -> (FV v (EOp o e1 e2))
-| FVSum v' efin ecorps : (v' <> v) /\ (FV v ecorps) -> (FV v (ESum v' efin ecorps)). 
+| FVSum v' efin ecorps : (v' <> v) /\ (FV v ecorps) -> (FV v (ESum v' efin ecorps)).
 
 Global Hint Constructors FV : core.
 
@@ -670,6 +711,7 @@ Ltac basic_exec :=
 (* Note that if you think you are proving something impossible,
 if may be a sign that you got the wrong definition for comp. *)
 
+Open Scope list_scope.
 Theorem comp_ok e env cenv vars stk :
  EnvsOk e env cenv vars ->
  Exec (comp cenv e) (stk,vars) (eval env e :: stk, vars).
@@ -680,31 +722,49 @@ revert stk.
 (*induction over the expression e*) 
 induction e.
 (*if the expression is an integer then only one number is pushed to the stack (only one step)*)
-- intros. simpl. apply OneStep. unfold Step. simpl. apply (SPush 0 stk vars n).
+- intros. basic_exec. 
 (*if the expression is a variable then the variable is searched on the stack (only one step)*)
-- intros. simpl. apply OneStep. unfold Step. simpl. apply (SGetVar 0 stk vars (index v cenv * 2) (lookup v env 0)). 
-  apply H. apply FVVar.
+- intros. basic_exec. apply H. apply FVVar.
 (*if the expression is an operation then top two variables are operated afte evaluating the two expressions
 (one step + 2 uses of induction hypothesis*)
-- intros. simpl. eapply Exec_trans. 
-  (*Start with the left operator (i.e. IHe1)*)
-  apply IHe1. unfold EnvsOk. unfold EnvsOk in H. intros. 
+- intros. basic_exec. simpl. 
+  (*first an intermidiate lemma for free variables*)
   (*Proof that FV v0 (ESum v e1 e2) holds*)
-  assert (Haux1: FV v (EOp o e1 e2)). apply (FVOp v o e1 e2). left. assumption.
+  assert (Haux1: forall v, FV v e1 -> FV v (EOp o e1 e2)). intros. apply (FVOp v o e1 e2). left. assumption.
+  assert (Haux2: forall v, FV v e2 -> FV v (EOp o e1 e2)). intros. apply (FVOp v o e1 e2). right. assumption.
+  (*apply transitivity*)
+  eapply Exec_trans. 
+  (*Start with the left operator (i.e. IHe1)*)
+  apply IHe1. unfold EnvsOk. unfold EnvsOk in H. intros. apply Haux1 in H0. 
   (*End the proof of the left side*)
-  apply H in Haux1. assumption.
+  apply H in H0. assumption.
   (*Separate the remaining code into code of right operator and instruction OP o*)
   eapply Exec_trans.
   (*Now the right operator (i.e. IHe2)*)
-  apply IHe2. unfold EnvsOk. unfold EnvsOk in H. intros. 
-  (*Proof that FV v0 (ESum v e1 e2) holds*)
-  assert (Haux1: FV v (EOp o e1 e2)). apply (FVOp v o e1 e2). right. assumption.
+  apply IHe2. unfold EnvsOk. unfold EnvsOk in H. intros. apply Haux2 in H0.
   (*End the proof of the right side*)
-  apply H in Haux1. assumption.
+  apply H in H0. assumption.
   (*if code is only an operator then use the definition of it to prove it*)
   simpl. apply OneStep. unfold Step. simpl. apply (SOp 0 stk vars o (eval env e2) (eval env e1)).
--(*if the expression is a Sum then...*)
+(*if the expression is a Sum then:make first two steps of NewVar*)
+- intros. basic_exec. simpl comp.
+  (*evaluate the expression e1 and put it in the stack*)
+  apply Steps_trans with (m2 := (Mach (length (comp cenv e1)) (eval env (e1) :: stk) (vars))).
+  (*evaluate the code until the compilation of expression e1 and apply induction hypothesis 1*)  
+  rewrite  <- app_assoc. apply Steps_extend with (code := comp cenv e1 ). apply IHe1.
+  (*Resolve EnvsOk precondition *)
+  unfold EnvsOk. unfold EnvsOk in H. intros. apply H.  
 
+apply FVSum2. assumption.  
+
+  (*
+  (*rewrite both machines as shifted machines by 2, then rewrite*)
+  assert (Haux2 : (shift_pc 2 (Mach 0 stk (0 :: 0 :: vars))) = (Mach 2 stk (0 :: 0 :: vars)) /\ (shift_pc 2 (Mach (length (comp cenv e1)) (eval env e1 :: stk) (0 :: 0 :: vars))) = (Mach (2 + length (comp cenv e1)) (eval env e1 :: stk) (0 :: 0 :: vars)) ) .
+  split. trivial. trivial. destruct Haux2. rewrite <- H0. rewrite <- H1.
+  (*shift the position and then apply induction hypothesis 1*)
+  apply Steps_shift. 
+  *)
+ 
 Admitted.
 
 Theorem compile_ok e : Closed e -> Run (compile e) (eval nil e).
