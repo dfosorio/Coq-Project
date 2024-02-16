@@ -493,6 +493,20 @@ induction H.
   + assumption.
 Qed.
 
+(*Auxiliar version of Steps_shift*)
+Lemma Aux_Steps_shift code0 code  stk vars stk' vars' p (n := List.length code0) :
+ Steps code (Mach 0 stk vars) (Mach p stk' vars') ->
+ Steps (code0 ++ code) (Mach n stk vars) (Mach (n + p) stk' vars').
+Proof.
+intros.
+(*introduce auxiliary lemmas*)
+assert (Haux1 : (Mach n stk vars) = shift_pc n (Mach 0 stk vars)). simpl. rewrite Nat.add_0_r. reflexivity.
+assert (Haux2 : (Mach (n + p) stk' vars') = shift_pc n (Mach p stk' vars')). trivial.
+(*rewrite using the auxiliary hypothesis and use Steps_shift*)
+rewrite Haux1. rewrite Haux2. apply Steps_shift. trivial.
+Qed.
+
+
 (** Composition of complete executions *)
 
 Lemma Exec_trans code1 code2 stk1 vars1 stk2 vars2 stk3 vars3 :
@@ -548,11 +562,9 @@ Lemma Steps_jump code n (f:nat->nat) stk vars b :
           (Mach 0 (b::stk) (a::acc::vars))
           (Mach (S n) (b::stk) ((S b)::(acc + sum f a N)::vars)).
 Proof.
-intros.
 (*Proof by induction over N *)
-(*Necessary to use any previous accumulator during the inductive case*)
-revert acc.
 induction N.
+intros.
 (*base case*)
 (*divide the execution in m1 = machine at starting point, m2 = machine before jump, m3 = machine after jump*)
 - intros. apply Steps_trans with (m2 := (Mach n (b :: stk) (S a :: acc + f a :: vars))).
@@ -565,23 +577,36 @@ induction N.
   lia. simpl. rewrite H. reflexivity. apply NoStep.
 (*Inductive case*)
 - intros. 
-assert (Haux1: forall N a, sum f a (S N) = sum f a N + f(S N + a)).
-intros. induction N0. simpl. 
-(*
-assert (Haux2: forall N a, sum f (S
+  (*The idea is to separate the execution in the following way: 
 
-reflexivity. simpl.
-(* 1) go back one step before the JumpNo was executed*)
-apply Steps_trans with (m2 := (Mach n (b :: stk) (S b :: acc + sum f a (S N) :: vars))).
-(* 2) go back from one execution of the cycle before*)
-  apply Steps_trans with (m2 := (Mach 0 (b :: stk) (b :: acc + sum f a N :: vars))) .
-(*3) use the hypothesis H*)
-*)
-
-Admitted.
-
-
-
+  |---H0---|---JumpYes---|---IHN---|
+  0        n             0        S n
+  
+  1) first use the first hypothesis:
+     M(0, b::stk, a::acc::vars) -> M(n, b::stk, S(a)::acc+fa::vars)
+  2) execute the jump in position n:
+     M(n, b::stk, a::acc::vars) -> M(0, b::stk, S(a)::acc+fa::vars) 
+  3) Use induction hyptohesis:
+    M(0, b::stk, S(a)::acc+fa::vars) -> M(s n, b::stk, S(b)::acc+fa+(sum f Sa N)::vars)
+  *)
+  (*Step 1*)
+  (*---------------------------------------------*)  
+  apply Steps_trans with (m2 := (Mach n (b :: stk) (S a :: acc + f a :: vars))).
+  (*eliminate the remainig jump instruction and apply hypothesis*)
+  apply Steps_extend. apply H0.
+  (*---------------------------------------------*)
+  (*Step 2*)
+  (*---------------------------------------------*)
+  (*use only the JumpYes instruction*)
+  apply Steps_trans with (m2 := (Mach 0 (b :: stk) (S a :: acc + f a :: vars))).
+  apply OneStep. unfold Step. simpl list_get. rewrite get_app_r0. simpl. rewrite <- (Nat.sub_diag n). 
+  apply (SJumpYes n stk (acc + f a :: vars) (S a) b n). lia. lia. lia.
+  (*---------------------------------------------*)
+  (*Step 3*)
+  (*---------------------------------------------*)
+  simpl sum. rewrite Nat.add_assoc. apply (IHN (S a) (acc + f a)). lia.
+  (*---------------------------------------------*)
+Qed.
 
 (** Specialized version of the previous result, with
     Exec instead of Step, and 0 as initial value for loop variables
@@ -596,8 +621,13 @@ Lemma Exec_jump code (f:nat->nat) stk vars b :
       (b::stk, 0::0::vars)
       (b::stk, (S b)::(sum f 0 b)::vars).
 Proof.
-Admitted.
-
+unfold Exec. 
+intros.
+(*rewrite the goal*)
+rewrite app_length. simpl. rewrite Nat.add_1_r.
+(*use the previous lemma and simplify*)
+apply Steps_jump  with (code := code) (n := length code) (b := b) (N:= b) (a:= 0) (acc:= 0). reflexivity. assumption. trivial.
+Qed.
 
 (** IV) The compiler
 
@@ -654,11 +684,10 @@ Fixpoint comp (cenv:list string) e :=
 Definition compile e := comp nil e.
 
 (** Free variables in an expression *)
-
 Inductive FV (v:var) : expr -> Prop :=
 | FVVar : FV v (EVar v)
 | FVOp o e1 e2 :  (FV v e1) \/ (FV v e2) -> (FV v (EOp o e1 e2))
-| FVSum v' efin ecorps : (v' <> v) /\ (FV v ecorps) -> (FV v (ESum v' efin ecorps)).
+| FVSum v' efin ecorps : (v' <> v) /\ (FV v ecorps) -> (FV v (ESum v' efin ecorps)). 
 
 Global Hint Constructors FV : core.
 
@@ -752,10 +781,19 @@ induction e.
   apply Steps_trans with (m2 := (Mach (length (comp cenv e1)) (eval env (e1) :: stk) (vars))).
   (*evaluate the code until the compilation of expression e1 and apply induction hypothesis 1*)  
   rewrite  <- app_assoc. apply Steps_extend with (code := comp cenv e1 ). apply IHe1.
-  (*Resolve EnvsOk precondition *)
-  unfold EnvsOk. unfold EnvsOk in H. intros. apply H.  
+  (*Resolve EnvsOk precondition NOT FINISHED*)
+  apply (EnvsOk_ESum2 v e1 e2 env cenv vars). assumption. 
+  (*Execute two NewVar instruction*)
 
-apply FVSum2. assumption.  
+
+
+  rewrite Steps_shift with (code0 := comp cenv e1 ) .
+
+  apply Exec_trans with (code1 := comp cenv e1 ++ [NewVar; NewVar]) (stk2 := eval env (e1) :: stk) (vars2 := 0::0::vars).
+  apply Steps_trans with (m2 := Mach (length (comp cenv e1) + 2) (eval env (e1) :: stk) (0::0::vars)).
+  (*evaluate the code until the two new variables*)
+  apply Steps_extend with (code := (comp cenv e1 ++ [NewVar; NewVar]) ).
+  
 
   (*
   (*rewrite both machines as shifted machines by 2, then rewrite*)
