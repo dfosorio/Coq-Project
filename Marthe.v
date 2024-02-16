@@ -155,16 +155,6 @@ Fixpoint sum f x k :=
 Compute sum (fun _ => 1) 0 10. (* 11 *)
 Compute sum (fun x => x) 0 10. (* 0 + 1 + ... + 10 = 55 *)
 
-(*Stating some simple lemmas about sums for other proofs*)
-Lemma sumAux1 N a f : sum f (S a) N = sum f a (S N) - f(a).
-Proof.
-simpl sum. lia.
-Qed.
-
-Lemma sumAux2 N a f : sum f a (S N) = sum f a N + f(S N + a).
-Proof.
-Admitted.
-
 (** II) Arithmetical expressions with summations *)
 
 (** Expressions *)
@@ -199,20 +189,6 @@ Definition test2 :=
 (** Evaluating expressions *)
 
 
-(*axuliary function that assigns a value to a variable in the environment.
-if the variable is not in, then it is added to the environment*)
-
-Fixpoint assign (env: list (string*nat)) (v: var) (val: nat) :=
-  match env with
-    | nil => (v,val)::nil
-    | (x,d)::l => if v =? x then (v,val)::l else (x,d)::(assign l v val)
-  end.
-
-(*Some tests*)
-Definition env1 := [("x",5);("y",3); ("z",1)].
-Compute assign env1 "y" 10.
-Compute assign env1 "a" 2.
-
 Definition eval_op o :=
   match o with
     | Plus => plus
@@ -221,26 +197,15 @@ Definition eval_op o :=
   end.  
 
 (*
-The function works in the following way:
-  - If int the returned value is the integer
-  - If var the returned value is its number in the environment (0 if the var is not in)
-  - If op the returned value is the evaluation of the operation over the evaluation of
-    the inner expressions
-  - If sum, then consider ecorps as a function nat -> nat. Then the returned value is:
-    eval (ecorps 0) + eval (ecorps 1) + ... + eval (ecorps (eval efin)). To do this, the
-    value of the variable v is changed in the environment for each call of eval (ecorps v).  
+The definition of the function was changed after realizing in the last proof that the
+previous definition was too complicated.  
 *)
 Fixpoint eval (env:list (string*nat)) e :=
   match e with
     | EInt n => n
     | EVar v => lookup v env 0
     | EOp o e1 e2 => (eval_op o) (eval env e1) (eval env e2)
-    | ESum v efin ecorps => let fix sumExp m : nat :=
-                            match m with
-                            | 0 => eval (assign env v m) ecorps
-                            | S n => (eval (assign env v m) ecorps) + (sumExp n)
-                            end
-                            in sumExp (eval env efin)
+    | ESum v efin ecorps => sum (fun x => eval ((v, x) :: env) ecorps) 0 (eval env efin)
   end.
 
 
@@ -629,6 +594,7 @@ rewrite app_length. simpl. rewrite Nat.add_1_r.
 apply Steps_jump  with (code := code) (n := length code) (b := b) (N:= b) (a:= 0) (acc:= 0). reflexivity. assumption. trivial.
 Qed.
 
+
 (** IV) The compiler
 
     One transforms an expression into a series of instructions
@@ -687,7 +653,7 @@ Definition compile e := comp nil e.
 Inductive FV (v:var) : expr -> Prop :=
 | FVVar : FV v (EVar v)
 | FVOp o e1 e2 :  (FV v e1) \/ (FV v e2) -> (FV v (EOp o e1 e2))
-| FVSum v' efin ecorps : (v' <> v) /\ (FV v ecorps) -> (FV v (ESum v' efin ecorps)). 
+| FVSum v' efin ecorps : ((v' <> v) /\ (FV v ecorps)) \/ (FV v efin) -> (FV v (ESum v' efin ecorps)). 
 
 Global Hint Constructors FV : core.
 
@@ -722,7 +688,7 @@ destruct (v =? v0) eqn: H1.
   + simpl. rewrite eqb_refl. simpl. reflexivity.
 (*Case v =/= v0*)
 (*Proof that FV v0 (ESum v e1 e2) holds*)
-- assert (Haux1: FV v0 (ESum v e1 e2)). apply (FVSum v0 v e1 e2). split. apply eqb_neq. assumption. assumption.
+- assert (Haux1: FV v0 (ESum v e1 e2)). apply (FVSum v0 v e1 e2). left. split. apply eqb_neq. assumption. assumption.
 (*use intermediate hypothesis*)
 apply H in Haux1. destruct Haux1. split. 
   + simpl. right. assumption.
@@ -745,9 +711,8 @@ Theorem comp_ok e env cenv vars stk :
  EnvsOk e env cenv vars ->
  Exec (comp cenv e) (stk,vars) (eval env e :: stk, vars).
 Proof.
-intros.
 (*Generalize before the induction*)
-revert stk.
+revert e env cenv vars stk.
 (*induction over the expression e*) 
 induction e.
 (*if the expression is an integer then only one number is pushed to the stack (only one step)*)
@@ -766,48 +731,56 @@ induction e.
   (*Start with the left operator (i.e. IHe1)*)
   apply IHe1. unfold EnvsOk. unfold EnvsOk in H. intros. apply Haux1 in H0. 
   (*End the proof of the left side*)
-  apply H in H0. assumption.
+  apply H in H0. exact H0.
   (*Separate the remaining code into code of right operator and instruction OP o*)
   eapply Exec_trans.
   (*Now the right operator (i.e. IHe2)*)
   apply IHe2. unfold EnvsOk. unfold EnvsOk in H. intros. apply Haux2 in H0.
   (*End the proof of the right side*)
-  apply H in H0. assumption.
+  apply H in H0. exact H0.
   (*if code is only an operator then use the definition of it to prove it*)
-  simpl. apply OneStep. unfold Step. simpl. apply (SOp 0 stk vars o (eval env e2) (eval env e1)).
-(*if the expression is a Sum then:make first two steps of NewVar*)
-- intros. basic_exec. simpl comp.
-  (*evaluate the expression e1 and put it in the stack*)
-  apply Steps_trans with (m2 := (Mach (length (comp cenv e1)) (eval env (e1) :: stk) (vars))).
-  (*evaluate the code until the compilation of expression e1 and apply induction hypothesis 1*)  
-  rewrite  <- app_assoc. apply Steps_extend with (code := comp cenv e1 ). apply IHe1.
-  (*Resolve EnvsOk precondition NOT FINISHED*)
-  apply (EnvsOk_ESum2 v e1 e2 env cenv vars). assumption. 
-  (*Execute two NewVar instruction*)
-
-
-
-  rewrite Steps_shift with (code0 := comp cenv e1 ) .
-
-  apply Exec_trans with (code1 := comp cenv e1 ++ [NewVar; NewVar]) (stk2 := eval env (e1) :: stk) (vars2 := 0::0::vars).
-  apply Steps_trans with (m2 := Mach (length (comp cenv e1) + 2) (eval env (e1) :: stk) (0::0::vars)).
-  (*evaluate the code until the two new variables*)
-  apply Steps_extend with (code := (comp cenv e1 ++ [NewVar; NewVar]) ).
-  
-
-  (*
-  (*rewrite both machines as shifted machines by 2, then rewrite*)
-  assert (Haux2 : (shift_pc 2 (Mach 0 stk (0 :: 0 :: vars))) = (Mach 2 stk (0 :: 0 :: vars)) /\ (shift_pc 2 (Mach (length (comp cenv e1)) (eval env e1 :: stk) (0 :: 0 :: vars))) = (Mach (2 + length (comp cenv e1)) (eval env e1 :: stk) (0 :: 0 :: vars)) ) .
-  split. trivial. trivial. destruct Haux2. rewrite <- H0. rewrite <- H1.
-  (*shift the position and then apply induction hypothesis 1*)
-  apply Steps_shift. 
+  simpl. apply OneStep. unfold Step. simpl. apply (SOp 0 stk vars0 o (eval env e2) (eval env e1)).
+(*if the expression is a Sum then first separate the prologue*)
+- intros. basic_exec. simpl comp. eapply Exec_trans.
+  (*Compile the prologue*)
+  (*-------------------------------------------*)
+  (*divide the prologue and evaluate first the expression efin using IHe1*)
+  eapply Exec_trans. apply IHe1. 
+  (*solve EnvsOk for the expression efin*)
+  unfold EnvsOk. intros. unfold EnvsOk in H. apply H . apply FVSum. right. assumption.
+  (*compile the NewVar instructions*)  
+  basic_exec. 
+  (*-------------------------------------------*)
+  (*Compile the body*)
+  (*-------------------------------------------*)
+  (*isolate the body and use Exec_jump (using the eval function as f) the eliminate the jump*)
+  eapply Exec_trans. eapply Exec_jump.
+  (*divide the body in two parts: 
+      (1) the compilation of the ecorp expression
+      (2) the compilation of the rest of the steps
   *)
- 
-Admitted.
+  intros. eapply Exec_trans.
+  (*compile part (1) using the induction hypothesis IHe2*)
+  apply IHe2. apply EnvsOk_ESum with (e1 := e1). exact H.
+  (*compile part (2) *)
+  basic_exec.
+  (*simplify pending goal and prove it by giving the specific function (in this case, give the eval function)*)
+  simpl. instantiate (1 := fun x => eval ((v,x)::env) e2). rewrite Nat.add_1_r. rewrite Nat.add_comm. reflexivity.
+  (*-------------------------------------------*)
+  (*Compile the epilogue*)
+  (*-------------------------------------------*)
+  (*compile instrcutions and end*)
+  basic_exec.
+  (*-------------------------------------------*)
+Qed.
 
 Theorem compile_ok e : Closed e -> Run (compile e) (eval nil e).
 Proof.
-Admitted.
+(*unfold definitions*)
+unfold Closed. unfold Run. intros. unfold compile.
+(*use previous theorem and then get a contradiction using the unresolved goal*)
+apply comp_ok. unfold EnvsOk. intros. exfalso. apply H in H0. assumption.  
+Qed.
 
 (** V) Executable semantics
 
@@ -818,6 +791,7 @@ Admitted.
 (** This part is much harder that the previous one and
 it is optional. *)
 
+Axiom TODO : forall {A:Type}, A.
 Inductive step_result : Type :=
   | More : machine -> step_result (* calcul en cours *)
   | Stop : machine -> step_result (* calcul fini (pc hors code) *)
