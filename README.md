@@ -1,4 +1,4 @@
-# Functional Programming and Proof in Coq Final Project: Micro-compiler
+# Functional Programming and Proofs in Coq Final Project: Micro-compiler
 
 This repository contains the coq file with the solution to the Micro-compiler final project. Things to keep in mind about this project:
 - All the proofs and definitions of the mandatory part were done, but the optional part was not done.
